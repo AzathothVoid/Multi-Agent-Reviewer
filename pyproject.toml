@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-multi-agent-reviewer = "multi_agent_reviewer:main"
+start = "multi_agent_reviewer.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
