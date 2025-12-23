@@ -1,0 +1,33 @@
+[project]
+name = "multi-agent-reviewer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "m.nauman", email = "m.nauman@foomotion.io" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "langchain",
+    "requests",
+    "redis",
+    "rq",
+    "python-dotenv",
+    "fastapi",
+    "uvicorn",
+    "PyGithub",
+    "GitPython",
+    "SQLAlchemy",
+    "pydantic",
+    "pydantic-settings",
+    "langchain_groq",
+    "psycopg2",
+    "alembic>=1.17.2",
+]
+
+[project.scripts]
+multi-agent-reviewer = "multi_agent_reviewer:main"
+
+[build-system]
+requires = ["uv_build>=0.9.9,<0.10.0"]
+build-backend = "uv_build"
