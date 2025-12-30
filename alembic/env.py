@@ -24,7 +24,8 @@ sys.path.insert(0, src_path)
 # target_metadata = mymodel.Base.metadata
 
 from multi_agent_reviewer.db import Base
-from multi_agent_reviewer.models.Task import Task 
+from multi_agent_reviewer.models.Task import Task
+from multi_agent_reviewer.models.Repo import Repo 
 
 target_metadata = Base.metadata
 
