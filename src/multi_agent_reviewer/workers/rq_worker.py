@@ -3,12 +3,13 @@ from src.multi_agent_reviewer.config import settings
 from redis import Redis
 import signal
 import logging
-import os;
+import os
 
 redis_conn = Redis.from_url(settings.redis_url)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def run_worker():
     queue = Queue(connection=redis_conn)
@@ -24,5 +25,5 @@ def run_worker():
     worker.work(with_scheduler=True)
 
 
-if __name__ ==  "__main__":
+if __name__ == "__main__":
     run_worker()
