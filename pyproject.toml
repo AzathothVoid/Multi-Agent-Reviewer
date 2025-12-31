@@ -23,6 +23,7 @@ dependencies = [
     "langchain_groq",
     "psycopg2",
     "alembic>=1.17.2",
+    "PyJwt"
 ]
 
 [project.scripts]
