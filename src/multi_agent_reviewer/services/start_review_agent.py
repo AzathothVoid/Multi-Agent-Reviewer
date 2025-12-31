@@ -46,43 +46,36 @@ def start_revew_agent(payload: dict):
     try:
         static_agent = queue.enqueue(
             "multi_agent_reviewer.services.static_check_agent.run_static_checks",
-            payload,
+            args=(payload,),
             timeout=10 * 60,
             retry=Retry(max=2),
         )
 
         llm_agent = queue.enqueue(
             "multi_agent_reviewer.services.llm_review_agent.run_llm_review",
-            payload,
-            static_agent.get_id(),
+            args=(payload, static_agent.get_id()),
             timeout=10 * 60,
             retry=Retry(max=2),
             depends_on=static_agent,
         )
 
-        while True:
-            lj = Job.fetch(llm_agent.get_id(), connection=redis)
-            if lj.is_finished:
-                suggestions = lj.result
-                break
-            if lj.is_failed:
-                raise Exception("LLM reviewer failed: " + str(lj.exc_info))
-            time.sleep(1)
+        finalizer_agent = queue.enqueue(
+            "multi_agent_reviewer.services.finalizer_agent.finalize_review",
+            args=(new_task.id, llm_agent.get_id(), static_agent.get_id()),
+            on_failure="multi_agent_reviewer.services.finalizer_agent.on_failure",
+            timeout=10 * 60,
+            retry=Retry(max=2),
+            depends_on=llm_agent,
+        )
 
-        new_task.status = TaskStatus.COMPLETED
-        new_task.result = {
-            "static_checks": static_agent.result,
-            "llm_suggestions": llm_agent.result,
-        }
-        session.commit()
-
-        return {"status": "completed", "task_id": new_task.id}
+        logger.info(f"Enqueued review agents for {owner}/{repo} PR #{pr}")
+        return {"status": "started", "task_id": new_task.id}
     except Exception as e:
         logger.error(f"Error processing review for {owner}/{repo} PR #{pr}: {e}")
         new_task.status = TaskStatus.FAILED
         new_task.result = {"error": str(e)}
         session.commit()
+        redis.delete(lock_key)
         raise
     finally:
         session.close()
-        redis.delete(lock_key)
