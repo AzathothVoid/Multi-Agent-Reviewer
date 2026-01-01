@@ -2,6 +2,7 @@ import os, shutil, logging
 from rq.job import Job
 from rq import get_current_job
 from ..utils.utils import run_command
+from ..utils.github_utils import clone_github_repo
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,7 @@ def run_static_checks(payload: dict):
     owner = payload["owner"]
     repo = payload["repo"]
     pr_number = payload["pr"]
+    installation_id = payload["installation_id"]
     head_sha = payload["head_sha"]
 
     job = get_current_job()
@@ -22,9 +24,11 @@ def run_static_checks(payload: dict):
     job.save_meta()
     job_id = job.get_id()
 
-    # clone the repo and checkout the PR head SHA
-    tmpdir = ""
+    tmpdir = clone_github_repo(owner, repo, head_sha, installation_id)
+
     try:
+        ## For now running the linter and formatting checks in the venv of the worker.
+        ## TODO: Move this to a containerized environment for better isolation.
         black = run_command(["black", "--check", "."], cwd=tmpdir)
         flake = run_command(["flake8", "."], cwd=tmpdir)
 

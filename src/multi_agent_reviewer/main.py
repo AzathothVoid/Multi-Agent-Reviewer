@@ -36,7 +36,7 @@ async def review(
     payload = await request.json()
 
     repo = payload.get("repository", {})
-    repo_name = repo.get("full_name", "")
+    repo_name = repo.get("name", "")
     repo_owner = repo.get("owner", {}).get("login", "")
     repo_record = None
 
@@ -109,6 +109,7 @@ async def review(
     if event == "pull_request":
         logger.info(f"Received pull_request event for repo {repo_name}")
         pr = payload.get("pull_request", {})
+        head_sha = (pr.get("head", {}).get("sha"),)
         action = payload.get("action")
 
         if action in ("opened", "synchronize", "reopened"):
@@ -121,6 +122,7 @@ async def review(
                 "repo": repo,
                 "pr": pr_number,
                 "installation_id": install_id,
+                "head_sha": head_sha,
             }
 
             review_agent = queue.enqueue(

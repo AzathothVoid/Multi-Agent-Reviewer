@@ -5,6 +5,7 @@ from datetime import datetime
 import redis as Redis
 import time
 from ..config import settings
+from .utils import run_command
 
 redis = Redis.from_url(settings.redis_url, decode_responses=True)
 
@@ -68,3 +69,24 @@ def auth_headers_for_installation(installation_id: int) -> dict:
         "Authorization": f"token {info['token']}",
         "Accept": "application/vnd.github+json",
     }
+
+
+def clone_github_repo(
+    owner: str, repo: str, head_sha: str, installation_id: int
+) -> str:
+    import tempfile
+
+    token = get_installation_token(installation_id)["token"]
+
+    url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+
+    tempdir = tempfile.mkdtemp()
+    tmp_repo_dir = f"{tempdir}/{repo}"
+
+    res = run_command(["git", "clone", url], cwd=tempdir)
+    res = run_command(["git", "checkout", head_sha], cwd=tmp_repo_dir)
+
+    if res["returncode"] != 0:
+        raise Exception(f"Git clone failed: {res['stderr']}")
+
+    return tmp_repo_dir

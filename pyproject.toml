@@ -25,11 +25,14 @@ dependencies = [
     "langchain_groq",
     "psycopg2",
     "alembic>=1.17.2",
-    "PyJwt"
+    "PyJwt",
+    "black",
+    "flake8",
 ]
 
 [project.scripts]
 start = "multi_agent_reviewer.cli:main"
+repo_clone_test= "multi_agent_reviewer.utils.github_utils:clone_github_repo"
 
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
