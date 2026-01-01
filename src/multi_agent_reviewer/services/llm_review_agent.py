@@ -1,4 +1,5 @@
 from rq.job import Job
+from langchain_groq import ChatGroq
 
 
 def run_llm_review(payload: dict, static_job_id: str):

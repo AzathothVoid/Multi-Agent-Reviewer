@@ -22,7 +22,6 @@ def run_static_checks(payload: dict):
 
     job.meta["stage"] = "static:started"
     job.save_meta()
-    job_id = job.get_id()
 
     tmpdir = clone_github_repo(owner, repo, head_sha, installation_id)
 
@@ -38,14 +37,21 @@ def run_static_checks(payload: dict):
             "summary": {"errors": len(flake.get("stdout", ""))},
             "workspace": tmpdir,
         }
+
         job.meta["stage"] = "static:completed"
         job.save_meta()
+
+        logger.info(
+            f"Static checks completed for {owner}/{repo} PR #{pr_number} with status {aggregated['status']}"
+        )
         return aggregated
+
     except Exception as e:
         logger.error(
             f"Error during static checks for {owner}/{repo} PR #{pr_number}: {e}"
         )
         job.meta["stage"] = "static:failed"
         job.save_meta()
+        raise
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
