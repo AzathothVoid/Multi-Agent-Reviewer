@@ -8,6 +8,8 @@ import redis as Redis
 import time
 from ..config import settings
 from .utils import run_command
+from typing import Dict
+from .diff_utils import parse_unified_diff, trim_text
 
 redis = Redis.from_url(settings.redis_url, decode_responses=True)
 
@@ -68,7 +70,7 @@ def auth_headers_for_installation(installation_id: int) -> dict:
     info = get_installation_token(installation_id)
 
     return {
-        "Authorization": f"token {info['token']}",
+        "Authorization": f"Bearer {info['token']}",
         "Accept": "application/vnd.github+json",
     }
 
@@ -114,3 +116,34 @@ def clone_github_repo(
     run_command(["git", "config", "user.name", "review-bot"], cwd=tmp_repo_dir)
 
     return tmp_repo_dir
+
+
+def get_changed_hunks(
+    owner: str, repo: str, pr_number: int, installation_id: int, max_chars: int = 5000
+) -> Dict[str, str]:
+    token = get_installation_token(installation_id)["token"]
+    url = f"https://api.github.com/app/repos/{owner}/{repo}/pulls/{pr_number}/files"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    with httpx.Client(timeout=20) as client:
+        response = client.get(url, headers=headers)
+
+    response.raise_for_status()
+    files = response.json()
+    hunks_by_filename = {}
+
+    for f in files:
+        filename = f["filename"]
+        patch = f.get("patch")
+
+        if not patch:
+            continue
+
+        patched_text = trim_text(patch, max_chars=max_chars)
+        parsed = parse_unified_diff(patched_text)
+        hunks_by_filename[filename] = parsed
+
+    return hunks_by_filename
