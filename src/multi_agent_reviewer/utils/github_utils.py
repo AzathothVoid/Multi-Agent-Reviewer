@@ -1,5 +1,7 @@
 import json
 import httpx
+import tempfile
+import shutil
 import jwt
 from datetime import datetime
 import redis as Redis
@@ -72,21 +74,43 @@ def auth_headers_for_installation(installation_id: int) -> dict:
 
 
 def clone_github_repo(
-    owner: str, repo: str, head_sha: str, installation_id: int
+    owner: str, repo: str, head_sha: str, installation_id: int, depth: int = 1
 ) -> str:
-    import tempfile
-
     token = get_installation_token(installation_id)["token"]
 
     url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
 
-    tempdir = tempfile.mkdtemp()
+    tempdir = tempfile.mkdtemp(prefix="repo_")
     tmp_repo_dir = f"{tempdir}/{repo}"
 
-    res = run_command(["git", "clone", url], cwd=tempdir)
+    res = run_command(["git", "clone", "--depth", str(depth), url], cwd=tempdir)
+
+    if res["returncode"] != 0:
+        shutil.rmtree(tempdir, ignore_errors=True)
+        raise RuntimeError(f"Git clone failed: {res['stderr']}")
+
     res = run_command(["git", "checkout", head_sha], cwd=tmp_repo_dir)
 
     if res["returncode"] != 0:
-        raise Exception(f"Git clone failed: {res['stderr']}")
+        fetch_cmd = ["git", "fetch", "origin", head_sha]
+        res_fetch = run_command(fetch_cmd, cwd=tmp_repo_dir)
+
+        if res_fetch["returncode"] != 0:
+            shutil.rmtree(tempdir, ignore_errors=True)
+            raise RuntimeError(f"git fetch {head_sha} failed: {res_fetch['stderr']}")
+
+        res_co = run_command(["git", "checkout", head_sha], cwd=tmp_repo_dir)
+
+        if res_co["returncode"] != 0:
+            shutil.rmtree(tempdir, ignore_errors=True)
+            raise RuntimeError(
+                f"git checkout {head_sha} failed after fetch: {res_co['stderr']}"
+            )
+
+    run_command(
+        ["git", "config", "user.email", "multi-agent-reviewer@bot.com"],
+        cwd=tmp_repo_dir,
+    )
+    run_command(["git", "config", "user.name", "review-bot"], cwd=tmp_repo_dir)
 
     return tmp_repo_dir
