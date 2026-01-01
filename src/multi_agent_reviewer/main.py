@@ -9,6 +9,7 @@ from .models.Repo import Repo
 from .services.start_review_agent import start_revew_agent
 
 logger = logging.getLogger(name=__name__)
+logging.basicConfig(filename="app.log", level=logging.DEBUG)
 redis = Redis.from_url(settings.redis_url, decode_responses=True)
 queue = Queue("default", connection=redis)
 
@@ -32,6 +33,8 @@ async def review(
     x_github_event: str | None = Header(default=None),
     x_hub_signature_256: str | None = Header(default=None),
 ):
+    logger.info("Received webhook request")
+
     body = await request.body()
     payload = await request.json()
 
@@ -65,7 +68,6 @@ async def review(
     event = x_github_event or payload.get("action")
 
     if event == "installation":
-        logger.info(f"Received installation event for repo {repo_name}")
         action = payload.get("action")
         installation = payload.get("installation", {})
         installation_id = installation.get("id")
@@ -74,8 +76,10 @@ async def review(
             repos = payload.get("repositories", [])
 
             for r in repos:
-                repo_name = r["full_name"]
-                owner = r["owner"]["login"]
+                logger.info(f"Processing Repo: {r}")
+
+                repo_name = r["name"]
+                owner = installation["account"]["login"]
 
                 record = (
                     session.query(Repo)
@@ -114,7 +118,7 @@ async def review(
 
         if action in ("opened", "synchronize", "reopened"):
             owner = repo["owner"]["login"]
-            repo = repo["full_name"]
+            repo = repo["name"]
             pr_number = pr.get("number")
             pr_title = pr.get("title", "")
 
@@ -143,3 +147,7 @@ async def review(
 @app.get("/oauth")
 async def oauthCallback():
     return {"message": "OAuth callback endpoint"}
+
+
+def testing():
+    logger.info("This is a test log from main.py")

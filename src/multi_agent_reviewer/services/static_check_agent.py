@@ -5,6 +5,7 @@ from ..utils.utils import run_command
 from ..utils.github_utils import clone_github_repo
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 
 def run_static_checks(payload: dict):

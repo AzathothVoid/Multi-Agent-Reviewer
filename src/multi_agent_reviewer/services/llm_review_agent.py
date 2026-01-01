@@ -8,11 +8,13 @@ from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
 from typing import Any, Dict, List, Any
 from typing import cast
+import json
 import logging
 
 redis = Redis.from_url(settings.redis_url, decode_responses=True)
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class Suggestion(BaseModel):

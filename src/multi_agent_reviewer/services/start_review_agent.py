@@ -14,6 +14,7 @@ LOCK_PREFIX = "lock:pr"
 redis = Redis.from_url(settings.redis_url, decode_responses=True)
 queue = Queue("default", connection=redis)
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 
 def _lock_key(owner: str, repo: str, pr_number: int) -> str:

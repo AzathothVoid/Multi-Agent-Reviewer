@@ -8,6 +8,7 @@ from typing import cast
 import logging
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 redis = Redis.from_url(settings.redis_url, decode_responses=True)
 
 
