@@ -7,6 +7,7 @@ from ..db import session
 from ..models.Task import Task, TaskStatus
 import logging
 import time
+from ..utils.github_utils import get_changed_hunks
 
 LOCK_PREFIX = "lock:pr"
 
@@ -39,11 +40,16 @@ def start_revew_agent(payload: dict):
         status=TaskStatus.IN_PROGRESS,
         payload=payload,
     )
+
     session.add(new_task)
     session.commit()
     session.refresh(new_task)
 
     try:
+        changed_hunks = get_changed_hunks(owner, repo, pr, payload["installation_id"])
+
+        payload["changed_hunks"] = changed_hunks
+
         static_agent = queue.enqueue(
             "multi_agent_reviewer.services.static_check_agent.run_static_checks",
             args=(payload,),

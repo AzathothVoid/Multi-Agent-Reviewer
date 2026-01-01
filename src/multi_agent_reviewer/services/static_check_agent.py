@@ -26,6 +26,9 @@ def run_static_checks(payload: dict):
     tmpdir = clone_github_repo(owner, repo, head_sha, installation_id)
 
     try:
+        logger.info(
+            f"Running static checks for {owner}/{repo} PR #{pr_number} at commit {head_sha}"
+        )
         ## For now running the linter and formatting checks in the venv of the worker.
         ## TODO: Move this to a containerized environment for better isolation.
         black = run_command(["black", "--check", "."], cwd=tmpdir)

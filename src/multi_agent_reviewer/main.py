@@ -116,12 +116,15 @@ async def review(
             owner = repo["owner"]["login"]
             repo = repo["full_name"]
             pr_number = pr.get("number")
+            pr_title = pr.get("title", "")
+
             install_id = repo_record.installation_id if repo_record else None
             payload_for_job = {
                 "owner": owner,
                 "repo": repo,
                 "pr": pr_number,
                 "installation_id": install_id,
+                "pr_title": pr_title,
                 "head_sha": head_sha,
             }
 
