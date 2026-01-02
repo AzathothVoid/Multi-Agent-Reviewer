@@ -42,7 +42,9 @@ def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
         }
 
         session.commit()
-        logger.info(f"Job {current_job.id} has completed sucessfully")
+        logger.info(
+            f"Job {current_job.id} has completed sucessfully with result: {task.result}"
+        )
     except Exception as e:
         logger.error(f"Error in finalize_review for task {task_id}: {e}")
         task.status = TaskStatus.FAILED
@@ -52,6 +54,6 @@ def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
         raise e
 
     finally:
-        session.close()
-        if "task" in locals() and task:
+        if task:
             _unlock_pr(task.owner, task.repo, task.pr_number)
+        session.close()

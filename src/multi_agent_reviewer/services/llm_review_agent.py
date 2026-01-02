@@ -8,7 +8,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
 from typing import Any, Dict, List, Optional, Any
 from typing import cast
-import httpx
+from langchain_core.output_parsers import PydanticOutputParser
 import coloredlogs
 import logging, re, json
 
@@ -45,6 +45,9 @@ PROMPT = """You are a concise code reviewer. Return only JSON that matches the f
 
         STATIC_SUMMARY:
         {static_summary}
+
+        INSTRUCTIONS:
+        {instructions}
 """
 
 prompt_template = PromptTemplate(
@@ -53,37 +56,78 @@ prompt_template = PromptTemplate(
         "pr_title",
         "changed_hunks",
         "static_summary",
+        "instructions",
     ],
 )
 
+parser = PydanticOutputParser(pydantic_object=LLMResponse)
+
 
 def _extract_json_from_exception(exc: Exception) -> Optional[Dict[str, Any]]:
-    try:
-        resp = getattr(exc, "response", None)
-        if resp is not None:
-            try:
-                txt = getattr(resp, "text", None) or str(resp)
-                m = re.search(r"(\{(?:.|\s)*\})", txt)
-                if m:
-                    return json.loads(m.group(1))
-            except Exception:
-                pass
-    except Exception:
-        pass
+    resp = getattr(exc, "response", None) or getattr(exc, "resp", None)
+    if resp is not None:
+        try:
+            if hasattr(resp, "json"):
+                payload = resp.json()
+            else:
+                payload = dict(resp)
+            fg = None
+            if isinstance(payload, dict):
+                fg = payload.get("error", {}).get("failed_generation") or payload.get(
+                    "failed_generation"
+                )
+            if isinstance(fg, str):
+                try:
+                    return json.loads(fg)
+                except Exception:
+                    pass
+            elif isinstance(fg, dict):
+                return fg
+        except Exception:
+            pass
 
     s = str(exc)
-    m = re.search(r"(\{(?:.|\s)*\})", s)
-    if m:
+
+    idx = s.find("failed_generation")
+    if idx == -1:
+        m = re.search(r'"failed_generation"\s*:\s*', s)
+        if m:
+            idx = m.start()
+    if idx == -1:
+        return None
+
+    start = s.find("{", idx)
+    if start == -1:
+        return None
+
+    depth = 0
+    end = None
+    i = start
+    L = len(s)
+    while i < L:
+        ch = s[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+        i += 1
+
+    if end is None:
+        return None
+
+    candidate = s[start:end]
+
+    try:
+        return json.loads(candidate)
+    except Exception:
         try:
-            return json.loads(m.group(1))
+            candidate2 = candidate.replace("'", '"')
+            return json.loads(candidate2)
         except Exception:
-            candidate = m.group(1)
-            cand2 = candidate.replace("'", '"')
-            try:
-                return json.loads(cand2)
-            except Exception:
-                pass
-    return None
+            return None
 
 
 def _make_llm():
@@ -120,6 +164,7 @@ def run_llm_review(payload: dict, static_job_id: str):
         "pr_title": payload.get("pr_title", ""),
         "changed_hunks": payload.get("changed_hunks", ""),
         "static_summary": str(static_summary),
+        "instructions": parser.get_format_instructions(),
     }
     llm = _make_llm()
     structured_llm = llm.with_structured_output(LLMResponse)
@@ -131,11 +176,22 @@ def run_llm_review(payload: dict, static_job_id: str):
     except Exception as e:
         logger.warning("LLM invocation raised, attempting salvage parsing: %s", e)
         salvaged = _extract_json_from_exception(e)
+        logger.info("Salvaged JSON: %s", salvaged)
         if salvaged:
+            if (
+                isinstance(salvaged, dict)
+                and "arguments" in salvaged
+                and isinstance(salvaged["arguments"], dict)
+            ):
+                candidate = salvaged["arguments"]
+            else:
+                candidate = salvaged
+
             try:
-                parsed_output = LLMResponse(**salvaged)
+                parsed_output = LLMResponse(**candidate)
                 logger.info(
-                    "Successfully parsed salvaged LLM JSON from exception payload."
+                    "Successfully parsed salvaged LLM JSON from exception payload: %s",
+                    candidate,
                 )
             except Exception as e2:
                 logger.exception("Salvage JSON parsed but failed validation: %s", e2)
