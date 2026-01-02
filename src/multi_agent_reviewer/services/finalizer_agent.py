@@ -21,24 +21,6 @@ def _unlock_pr(owner: str, repo: str, pr_number: int):
     redis.delete(lock_key)
 
 
-def on_failure(job, conneciton, type, value, traceback):
-    logger.error(f"Job {job.id} failed with error: {value}")
-    task_id = job.meta.get("task_id")
-
-    if not task_id:
-        return
-
-    task = cast(Task, session.get(Task, task_id))
-
-    if task:
-        task.status = TaskStatus.FAILED
-        task.result = {"error": f"Job {job.id} failed: {value}"}
-        session.commit()
-        _unlock_pr(task.owner, task.repo, task.pr_number)
-
-    session.close()
-
-
 def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
     global task
     try:

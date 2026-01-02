@@ -6,11 +6,11 @@ from pydantic import BaseModel, Field, SecretStr
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
-from typing import Any, Dict, List, Any
+from typing import Any, Dict, List, Optional, Any
 from typing import cast
 import httpx
 import coloredlogs
-import logging
+import logging, re, json
 
 redis = Redis.from_url(settings.redis_url)
 
@@ -57,6 +57,35 @@ prompt_template = PromptTemplate(
 )
 
 
+def _extract_json_from_exception(exc: Exception) -> Optional[Dict[str, Any]]:
+    try:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            try:
+                txt = getattr(resp, "text", None) or str(resp)
+                m = re.search(r"(\{(?:.|\s)*\})", txt)
+                if m:
+                    return json.loads(m.group(1))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    s = str(exc)
+    m = re.search(r"(\{(?:.|\s)*\})", s)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            candidate = m.group(1)
+            cand2 = candidate.replace("'", '"')
+            try:
+                return json.loads(cand2)
+            except Exception:
+                pass
+    return None
+
+
 def _make_llm():
     # Create and return the LLM instance. Allows for diversity and easier testing
     llm = ChatGroq(
@@ -99,27 +128,31 @@ def run_llm_review(payload: dict, static_job_id: str):
         chain = prompt_template | structured_llm
         parsed_output: LLMResponse = cast(LLMResponse, chain.invoke(prompt_input))
 
-    except httpx.HTTPStatusError as e:
-        resp_text = None
-        try:
-            resp_text = e.response.text
-        except Exception:
-            resp_text = str(e)
-
-        logger.error(
-            f"HTTP error from LLM provider for {owner}/{repo} PR #{pr}: {e} - response: {resp_text}"
-        )
-        job.meta["stage"] = "llm:failed"
-        job.save_meta()
-        raise
-
     except Exception as e:
-        logger.error(
-            f"Error during LLM invocation or parsing for {owner}/{repo} PR #{pr}: {e}"
-        )
-        job.meta["stage"] = "llm:failed"
-        job.save_meta()
-        raise
+        logger.warning("LLM invocation raised, attempting salvage parsing: %s", e)
+        salvaged = _extract_json_from_exception(e)
+        if salvaged:
+            try:
+                parsed_output = LLMResponse(**salvaged)
+                logger.info(
+                    "Successfully parsed salvaged LLM JSON from exception payload."
+                )
+            except Exception as e2:
+                logger.exception("Salvage JSON parsed but failed validation: %s", e2)
+                job.meta["stage"] = "llm:failed"
+                job.save_meta()
+                raise
+        else:
+            logger.exception(
+                "Error during LLM invocation or parsing for %s/%s PR #%s: %s",
+                owner,
+                repo,
+                pr,
+                e,
+            )
+            job.meta["stage"] = "llm:failed"
+            job.save_meta()
+            raise
 
     job.meta["stage"] = "llm:completed"
     job.save_meta()

@@ -38,11 +38,8 @@ def make_jwt(
         "iss": app_id,
     }
 
-    logger.info(f"Generating JWT with payload: {payload}")
-    logger.info(f"Private Key: {private_key}")
-
     token = jwt.encode(payload=payload, key=private_key, algorithm="RS256")
-    logger.info(f"Generated JWT: {token}")
+
     return token
 
 

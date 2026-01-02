@@ -21,6 +21,10 @@ def _unlock_pr(owner: str, repo: str, pr_number: int):
 
 def on_job_failure(job, connection, type, value, tb, *args, **kwargs):
     task = None
+    owner = None
+    repo = None
+    pr_number = None
+
     try:
         task_id = None
         if job.args:
@@ -44,6 +48,10 @@ def on_job_failure(job, connection, type, value, tb, *args, **kwargs):
             try:
                 task = session.query(Task).filter(Task.id == task_id).first()
                 if task:
+                    owner = task.owner
+                    repo = task.repo
+                    pr_number = task.pr_number
+
                     task.status = TaskStatus.FAILED
                     task.result = {"error": str(type), "traceback": err_text}
                     task.completed_at = cast(DateTime, datetime.now())
@@ -70,8 +78,8 @@ def on_job_failure(job, connection, type, value, tb, *args, **kwargs):
                 job.args,
                 job.kwargs,
             )
-        if task:
-            _unlock_pr(task.owner, task.repo, task.pr_number)
+        if task and owner and repo and pr_number:
+            _unlock_pr(owner, repo, pr_number)
 
-    except Exception:
-        logger.exception("Unhandled error in on_job_failure handler")
+    except Exception as e:
+        logger.exception("Unhandled error in on_job_failure handler: %s", e)

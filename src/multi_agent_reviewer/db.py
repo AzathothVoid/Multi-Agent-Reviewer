@@ -6,6 +6,6 @@ engine = create_engine(url=settings.database_url, echo=True)
 Session = sessionmaker(bind=engine)
 session = Session()
 
+
 class Base(DeclarativeBase):
     pass
-
