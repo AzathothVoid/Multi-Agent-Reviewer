@@ -6,11 +6,13 @@ import logging
 from .config import settings
 from .db import session
 from .models.Repo import Repo
+import coloredlogs
 from .services.start_review_agent import start_revew_agent
 
 logger = logging.getLogger(name=__name__)
+coloredlogs.install(level="DEBUG", logger=logger)
 logging.basicConfig(filename="app.log", level=logging.DEBUG)
-redis = Redis.from_url(settings.redis_url, decode_responses=True)
+redis = Redis.from_url(settings.redis_url)
 queue = Queue("default", connection=redis)
 
 app = FastAPI()
@@ -113,7 +115,7 @@ async def review(
     if event == "pull_request":
         logger.info(f"Received pull_request event for repo {repo_name}")
         pr = payload.get("pull_request", {})
-        head_sha = (pr.get("head", {}).get("sha"),)
+        head_sha = pr.get("head", {}).get("sha")
         action = payload.get("action")
 
         if action in ("opened", "synchronize", "reopened"):
@@ -134,7 +136,7 @@ async def review(
 
             review_agent = queue.enqueue(
                 "multi_agent_reviewer.services.start_review_agent.start_revew_agent",
-                payload_for_job,
+                args=(payload_for_job,),
                 timeout=10 * 60,
                 retry=Retry(max=3),
             )

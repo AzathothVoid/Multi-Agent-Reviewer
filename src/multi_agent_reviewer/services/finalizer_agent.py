@@ -5,11 +5,15 @@ from ..models.Task import Task, TaskStatus
 from ..config import settings
 from redis import Redis
 from typing import cast
+from datetime import datetime
+from sqlalchemy import DateTime
+import coloredlogs
 import logging
 
 logger = logging.getLogger(__name__)
+coloredlogs.install(level="DEBUG", logger=logger)
 logging.basicConfig(level=logging.DEBUG)
-redis = Redis.from_url(settings.redis_url, decode_responses=True)
+redis = Redis.from_url(settings.redis_url)
 
 
 def _unlock_pr(owner: str, repo: str, pr_number: int):
@@ -49,6 +53,7 @@ def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
         llm_job = Job.fetch(llm_job_id, connection=redis)
 
         task.status = TaskStatus.COMPLETED
+        task.completed_at = cast(DateTime, datetime.now())
         task.result = {
             "static_checks": static_job.result,
             "llm_suggestions": llm_job.result,
@@ -59,9 +64,10 @@ def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
     except Exception as e:
         logger.error(f"Error in finalize_review for task {task_id}: {e}")
         task.status = TaskStatus.FAILED
+        task.completed_at = cast(DateTime, datetime.now())
         task.result = {"error": str(e)}
         session.commit()
-        raise
+        raise e
 
     finally:
         session.close()

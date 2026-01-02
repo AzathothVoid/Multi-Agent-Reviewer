@@ -8,12 +8,14 @@ from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
 from typing import Any, Dict, List, Any
 from typing import cast
-import json
+import httpx
+import coloredlogs
 import logging
 
-redis = Redis.from_url(settings.redis_url, decode_responses=True)
+redis = Redis.from_url(settings.redis_url)
 
 logger = logging.getLogger(__name__)
+coloredlogs.install(level="DEBUG", logger=logger)
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -58,7 +60,7 @@ prompt_template = PromptTemplate(
 def _make_llm():
     # Create and return the LLM instance. Allows for diversity and easier testing
     llm = ChatGroq(
-        model="gpt-4o-mini",
+        model="openai/gpt-oss-120b",
         api_key=SecretStr(settings.groq_api_key),
         temperature=0.2,
         max_tokens=4000,
@@ -96,6 +98,20 @@ def run_llm_review(payload: dict, static_job_id: str):
     try:
         chain = prompt_template | structured_llm
         parsed_output: LLMResponse = cast(LLMResponse, chain.invoke(prompt_input))
+
+    except httpx.HTTPStatusError as e:
+        resp_text = None
+        try:
+            resp_text = e.response.text
+        except Exception:
+            resp_text = str(e)
+
+        logger.error(
+            f"HTTP error from LLM provider for {owner}/{repo} PR #{pr}: {e} - response: {resp_text}"
+        )
+        job.meta["stage"] = "llm:failed"
+        job.save_meta()
+        raise
 
     except Exception as e:
         logger.error(

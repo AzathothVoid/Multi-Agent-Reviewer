@@ -1,5 +1,5 @@
 from rq import Worker, Queue
-from src.multi_agent_reviewer.config import settings
+from ..config import settings
 from redis import Redis
 import signal
 import logging

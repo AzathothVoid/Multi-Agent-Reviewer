@@ -3,8 +3,10 @@ from rq.job import Job
 from rq import get_current_job
 from ..utils.utils import run_command
 from ..utils.github_utils import clone_github_repo
+import coloredlogs
 
 logger = logging.getLogger(__name__)
+coloredlogs.install(level="DEBUG", logger=logger)
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -24,22 +26,27 @@ def run_static_checks(payload: dict):
     job.meta["stage"] = "static:started"
     job.save_meta()
 
-    tmpdir = clone_github_repo(owner, repo, head_sha, installation_id)
+    tmpdir = None
+    tmp_repo_dir = None
 
     try:
+        (tmpdir, tmp_repo_dir) = clone_github_repo(
+            owner, repo, head_sha, installation_id
+        )
+
         logger.info(
             f"Running static checks for {owner}/{repo} PR #{pr_number} at commit {head_sha}"
         )
         ## For now running the linter and formatting checks in the venv of the worker.
         ## TODO: Move this to a containerized environment for better isolation.
-        black = run_command(["black", "--check", "."], cwd=tmpdir)
-        flake = run_command(["flake8", "."], cwd=tmpdir)
+        black = run_command(["black", "--check", "."], cwd=tmp_repo_dir)
+        flake = run_command(["flake8", "."], cwd=tmp_repo_dir)
 
         aggregated = {
             "status": "ok" if black["returncode"] == 0 else "failed",
             "artifacts": {"black": black, "flake8": flake},
             "summary": {"errors": len(flake.get("stdout", ""))},
-            "workspace": tmpdir,
+            "workspace": tmp_repo_dir,
         }
 
         job.meta["stage"] = "static:completed"
@@ -56,6 +63,7 @@ def run_static_checks(payload: dict):
         )
         job.meta["stage"] = "static:failed"
         job.save_meta()
-        raise
+        raise e
     finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)

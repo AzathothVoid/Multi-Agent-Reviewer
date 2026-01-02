@@ -28,10 +28,12 @@ dependencies = [
     "PyJwt",
     "black",
     "flake8",
+    "coloredlogs>=15.0.1",
 ]
 
 [project.scripts]
 start = "multi_agent_reviewer.cli:main"
+run-worker = "multi_agent_reviewer.workers.rq_worker:run_worker"
 log-test = "multi_agent_reviewer.main:testing"
 repo_clone_test= "multi_agent_reviewer.utils.github_utils:clone_github_repo"
 

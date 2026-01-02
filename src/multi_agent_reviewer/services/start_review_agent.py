@@ -1,6 +1,7 @@
 from rq import get_current_job, Queue, Retry
 from rq.job import Job
 from redis import Redis
+from datetime import datetime
 from ..config import settings
 from typing import cast
 from ..db import session
@@ -8,12 +9,15 @@ from ..models.Task import Task, TaskStatus
 import logging
 import time
 from ..utils.github_utils import get_changed_hunks
+from sqlalchemy import DateTime
+import coloredlogs
 
 LOCK_PREFIX = "lock:pr"
 
-redis = Redis.from_url(settings.redis_url, decode_responses=True)
+redis = Redis.from_url(settings.redis_url)
 queue = Queue("default", connection=redis)
 logger = logging.getLogger(__name__)
+coloredlogs.install(level="DEBUG", logger=logger)
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -50,10 +54,12 @@ def start_revew_agent(payload: dict):
         changed_hunks = get_changed_hunks(owner, repo, pr, payload["installation_id"])
 
         payload["changed_hunks"] = changed_hunks
+        payload["task_id"] = new_task.id
 
         static_agent = queue.enqueue(
             "multi_agent_reviewer.services.static_check_agent.run_static_checks",
             args=(payload,),
+            on_failure="multi_agent_reviewer.services.job_failure.on_job_failure",
             timeout=10 * 60,
             retry=Retry(max=2),
         )
@@ -61,6 +67,7 @@ def start_revew_agent(payload: dict):
         llm_agent = queue.enqueue(
             "multi_agent_reviewer.services.llm_review_agent.run_llm_review",
             args=(payload, static_agent.get_id()),
+            on_failure="multi_agent_reviewer.services.job_failure.on_job_failure",
             timeout=10 * 60,
             retry=Retry(max=2),
             depends_on=static_agent,
@@ -69,7 +76,7 @@ def start_revew_agent(payload: dict):
         finalizer_agent = queue.enqueue(
             "multi_agent_reviewer.services.finalizer_agent.finalize_review",
             args=(new_task.id, llm_agent.get_id(), static_agent.get_id()),
-            on_failure="multi_agent_reviewer.services.finalizer_agent.on_failure",
+            on_failure="multi_agent_reviewer.services.job_failure.on_job_failure",
             timeout=10 * 60,
             retry=Retry(max=2),
             depends_on=llm_agent,
@@ -80,6 +87,7 @@ def start_revew_agent(payload: dict):
     except Exception as e:
         logger.error(f"Error processing review for {owner}/{repo} PR #{pr}: {e}")
         new_task.status = TaskStatus.FAILED
+        new_task.completed_at = cast(DateTime, datetime.now())
         new_task.result = {"error": str(e)}
         session.commit()
         redis.delete(lock_key)
