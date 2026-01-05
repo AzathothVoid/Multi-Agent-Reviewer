@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import FastAPI, Request, Header, HTTPException, Response
 from rq import Queue, Retry
 from redis import Redis
 import json, hmac, hashlib
@@ -8,6 +8,9 @@ from .db import session
 from .models.Repo import Repo
 import coloredlogs
 from .services.start_review_agent import start_revew_agent
+from prometheus_client import Counter, Histogram, generate_latest
+from multi_agent_reviewer import metrics as metrics_module
+import time
 
 logger = logging.getLogger(name=__name__)
 coloredlogs.install(level="DEBUG", logger=logger)
@@ -16,6 +19,17 @@ redis = Redis.from_url(settings.redis_url)
 queue = Queue("default", connection=redis)
 
 app = FastAPI()
+
+REQUEST_COUNT = Counter(
+    "http_requests_total", "Total HTTP requests", ["method", "endpoint", "status"]
+)
+
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds", "Request latency", ["endpoint"]
+)
+
+metric_dir = settings.prometheus_multiproc_dir
+metrics_module.ensure_multiproc_dir(metric_dir)
 
 
 def verify_signature(secret: str, body: bytes, hub_signature: str | None) -> bool:
@@ -151,5 +165,19 @@ async def oauthCallback():
     return {"message": "OAuth callback endpoint"}
 
 
-def testing():
-    logger.info("This is a test log from main.py")
+@app.get("/metrics")
+def metrics():
+    return metrics_module.metrics_response()
+
+
+@app.middleware("http")
+async def metrics_middleware(request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration = time.time() - start
+
+    REQUEST_COUNT.labels(request.method, request.url.path, response.status_code).inc()
+
+    REQUEST_LATENCY.labels(request.url.path).observe(duration)
+
+    return response

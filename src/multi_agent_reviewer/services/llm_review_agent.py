@@ -48,6 +48,7 @@ PROMPT = """You are a concise code reviewer. Return only JSON that matches the f
 
         INSTRUCTIONS:
         {instructions}
+
 """
 
 prompt_template = PromptTemplate(

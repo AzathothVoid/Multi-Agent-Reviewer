@@ -3,6 +3,7 @@ from ..config import settings
 from redis import Redis
 import signal
 import logging
+from .metrics_worker import MetricsWorker
 import os
 
 redis_conn = Redis.from_url(settings.redis_url)
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def run_worker():
     queue = Queue(connection=redis_conn)
-    worker = Worker([queue])
+    worker = MetricsWorker([queue])
 
     def _graceful(signum, frame):
         logger.info("Received signal %s, shutting down gracefully...", signum)
