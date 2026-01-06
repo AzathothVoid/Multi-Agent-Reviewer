@@ -11,7 +11,8 @@ from typing import cast
 from langchain_core.output_parsers import PydanticOutputParser
 import coloredlogs
 import logging, re, json, time
-from multi_agent_reviewer import metrics
+from prometheus_client import REGISTRY
+from multi_agent_reviewer.metrics import get_metrics
 
 redis = Redis.from_url(settings.redis_url)
 
@@ -162,7 +163,8 @@ def run_llm_review(payload: dict, static_job_id: str):
     job.meta["stage"] = "llm:started"
     job.save_meta()
 
-    metrics.MAR_JOBS_STARTED.labels(AGENT).inc()
+    metrics_dict = get_metrics(REGISTRY)
+    metrics_dict["MAR_JOBS_STARTED"].labels(AGENT).inc()
     start_time = time.time()
 
     logger.info(f"Running LLM review for {owner}/{repo} PR #{pr} with static summary.")
@@ -176,11 +178,13 @@ def run_llm_review(payload: dict, static_job_id: str):
     llm = _make_llm()
     structured_llm = llm.with_structured_output(LLMResponse)
 
-    metrics.MAR_LLM_REQUESTS.labels(AGENT, settings.llm_model, "patch_generation").inc()
+    metrics_dict["MAR_LLM_REQUESTS"].labels(
+        AGENT, settings.llm_model, "patch_generation"
+    ).inc()
     try:
         chain = prompt_template | structured_llm
 
-        with metrics.MAR_LLM_LATENCY.labels(AGENT, settings.llm_model).time():
+        with metrics_dict["MAR_LLM_LATENCY"].labels(AGENT, settings.llm_model).time():
             parsed_output: LLMResponse = cast(LLMResponse, chain.invoke(prompt_input))
 
     except Exception as e:
@@ -218,14 +222,18 @@ def run_llm_review(payload: dict, static_job_id: str):
             )
             job.meta["stage"] = "llm:failed"
             job.save_meta()
-            metrics.MAR_JOBS_FAILED.labels(AGENT, type(e).__name__).inc()
-            metrics.MAR_JOB_DURATION.labels(AGENT).observe(time.time() - start_time)
+
+            metrics_dict["MAR_JOBS_FAILED"].labels(AGENT, type(e).__name__).inc()
+            metrics_dict["MAR_JOB_DURATION"].labels(AGENT).observe(
+                time.time() - start_time
+            )
             raise
 
     job.meta["stage"] = "llm:completed"
     job.save_meta()
-    metrics.MAR_JOBS_SUCCEEDED.labels(AGENT).inc()
-    metrics.MAR_JOB_DURATION.labels(AGENT).observe(time.time() - start_time)
+
+    metrics_dict["MAR_JOBS_SUCCEEDED"].labels(AGENT).inc()
+    metrics_dict["MAR_JOB_DURATION"].labels(AGENT).observe(time.time() - start_time)
 
     logger.info(
         f"LLM review completed for {owner}/{repo} PR #{pr} with {len(parsed_output.suggestions)} suggestions."

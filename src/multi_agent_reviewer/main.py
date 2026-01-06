@@ -8,7 +8,14 @@ from .db import session
 from .models.Repo import Repo
 import coloredlogs
 from .services.start_review_agent import start_revew_agent
-from multi_agent_reviewer import metrics
+from prometheus_client import REGISTRY
+from multi_agent_reviewer.metrics import (
+    get_metrics,
+    ensure_multiproc_dir,
+    metrics_response,
+)
+
+metrics_dict = get_metrics(REGISTRY)
 from dotenv import load_dotenv
 import time
 
@@ -22,7 +29,7 @@ load_dotenv()
 os.environ.setdefault("PROMETHEUS_MULTIPROC_DIR", settings.prometheus_multiproc_dir)
 
 metric_dir = settings.prometheus_multiproc_dir
-metrics.ensure_multiproc_dir(metric_dir)
+ensure_multiproc_dir(metric_dir)
 
 from prometheus_client import Counter, Histogram, generate_latest
 
@@ -172,7 +179,7 @@ async def oauthCallback():
 
 @app.get("/metrics")
 def metrics_fn():
-    return metrics.metrics_response()
+    return metrics_response()
 
 
 @app.middleware("http")

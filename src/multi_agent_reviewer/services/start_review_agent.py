@@ -10,7 +10,8 @@ import logging
 import time
 from ..utils.github_utils import get_changed_hunks
 from sqlalchemy import DateTime
-from multi_agent_reviewer import metrics
+from prometheus_client import REGISTRY
+from multi_agent_reviewer.metrics import get_metrics
 import coloredlogs
 
 LOCK_PREFIX = "lock:pr"
@@ -41,7 +42,8 @@ def start_revew_agent(payload: dict):
         logger.info(f"Review job already in progress for {owner}/{repo} PR #{pr}")
         return {"status": "skipped", "reason": "already_running"}
 
-    metrics.MAR_JOBS_STARTED.labels(AGENT).inc()
+    metrics_dict = get_metrics(REGISTRY)
+    metrics_dict["MAR_JOBS_STARTED"].labels(AGENT).inc()
     start_time = time.time()
 
     new_task = Task(
@@ -89,7 +91,7 @@ def start_revew_agent(payload: dict):
         )
 
         logger.info(f"Enqueued review agents for {owner}/{repo} PR #{pr}")
-        metrics.MAR_JOBS_SUCCEEDED.labels(AGENT).inc()
+        metrics_dict["MAR_JOBS_SUCCEEDED"].labels(AGENT).inc()
         return {"status": "started", "task_id": new_task.id}
     except Exception as e:
         logger.error(f"Error processing review for {owner}/{repo} PR #{pr}: {e}")
@@ -98,8 +100,8 @@ def start_revew_agent(payload: dict):
         new_task.result = {"error": str(e)}
         session.commit()
         redis.delete(lock_key)
-        metrics.MAR_JOBS_FAILED.labels(AGENT, type(e).__name__).inc()
+        metrics_dict["MAR_JOBS_FAILED"].labels(AGENT, type(e).__name__).inc()
         raise
     finally:
-        metrics.MAR_JOB_DURATION.labels(AGENT).observe(time.time() - start_time)
+        metrics_dict["MAR_JOB_DURATION"].labels(AGENT).observe(time.time() - start_time)
         session.close()

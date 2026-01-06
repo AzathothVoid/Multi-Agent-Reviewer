@@ -30,6 +30,7 @@ dependencies = [
     "flake8",
     "coloredlogs>=15.0.1",
     "prometheus-client>=0.23.1",
+    "pytest>=9.0.2",
 ]
 
 [project.scripts]

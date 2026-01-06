@@ -9,7 +9,8 @@ from datetime import datetime
 from sqlalchemy import DateTime
 import coloredlogs
 import logging, time
-from multi_agent_reviewer import metrics
+from prometheus_client import REGISTRY
+from multi_agent_reviewer.metrics import get_metrics
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(level="DEBUG", logger=logger)
@@ -27,7 +28,8 @@ def _unlock_pr(owner: str, repo: str, pr_number: int):
 def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
     global task
 
-    metrics.MAR_JOBS_STARTED.labels(AGENT).inc()
+    metrics_dict = get_metrics(REGISTRY)
+    metrics_dict["MAR_JOBS_STARTED"].labels(AGENT).inc()
     start_time = time.time()
 
     try:
@@ -52,18 +54,18 @@ def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
         logger.info(
             f"Job {current_job.id} has completed sucessfully with result: {task.result}"
         )
-        metrics.MAR_JOBS_SUCCEEDED.labels(AGENT).inc()
+        metrics_dict["MAR_JOBS_SUCCEEDED"].labels(AGENT).inc()
     except Exception as e:
         logger.error(f"Error in finalize_review for task {task_id}: {e}")
         task.status = TaskStatus.FAILED
         task.completed_at = cast(DateTime, datetime.now())
         task.result = {"error": str(e)}
         session.commit()
-        metrics.MAR_JOBS_FAILED.labels(AGENT, type(e).__name__).inc()
+        metrics_dict["MAR_JOBS_FAILED"].labels(AGENT, type(e).__name__).inc()
         raise e
 
     finally:
         if task:
             _unlock_pr(task.owner, task.repo, task.pr_number)
         session.close()
-        metrics.MAR_JOB_DURATION.labels(AGENT).observe(time.time() - start_time)
+        metrics_dict["MAR_JOB_DURATION"].labels(AGENT).observe(time.time() - start_time)
