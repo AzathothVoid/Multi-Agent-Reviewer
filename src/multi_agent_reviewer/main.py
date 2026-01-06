@@ -1,15 +1,15 @@
 from fastapi import FastAPI, Request, Header, HTTPException, Response
 from rq import Queue, Retry
 from redis import Redis
-import json, hmac, hashlib
+import os, hmac, hashlib
 import logging
 from .config import settings
 from .db import session
 from .models.Repo import Repo
 import coloredlogs
 from .services.start_review_agent import start_revew_agent
-from prometheus_client import Counter, Histogram, generate_latest
-from multi_agent_reviewer import metrics as metrics_module
+from multi_agent_reviewer import metrics
+from dotenv import load_dotenv
 import time
 
 logger = logging.getLogger(name=__name__)
@@ -17,6 +17,14 @@ coloredlogs.install(level="DEBUG", logger=logger)
 logging.basicConfig(filename="app.log", level=logging.DEBUG)
 redis = Redis.from_url(settings.redis_url)
 queue = Queue("default", connection=redis)
+load_dotenv()
+
+os.environ.setdefault("PROMETHEUS_MULTIPROC_DIR", settings.prometheus_multiproc_dir)
+
+metric_dir = settings.prometheus_multiproc_dir
+metrics.ensure_multiproc_dir(metric_dir)
+
+from prometheus_client import Counter, Histogram, generate_latest
 
 app = FastAPI()
 
@@ -27,9 +35,6 @@ REQUEST_COUNT = Counter(
 REQUEST_LATENCY = Histogram(
     "http_request_duration_seconds", "Request latency", ["endpoint"]
 )
-
-metric_dir = settings.prometheus_multiproc_dir
-metrics_module.ensure_multiproc_dir(metric_dir)
 
 
 def verify_signature(secret: str, body: bytes, hub_signature: str | None) -> bool:
@@ -166,8 +171,8 @@ async def oauthCallback():
 
 
 @app.get("/metrics")
-def metrics():
-    return metrics_module.metrics_response()
+def metrics_fn():
+    return metrics.metrics_response()
 
 
 @app.middleware("http")

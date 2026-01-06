@@ -11,6 +11,8 @@ redis_conn = Redis.from_url(settings.redis_url)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = settings.prometheus_multiproc_dir
+
 
 def run_worker():
     queue = Queue(connection=redis_conn)

@@ -10,13 +10,16 @@ from typing import Any, Dict, List, Optional, Any
 from typing import cast
 from langchain_core.output_parsers import PydanticOutputParser
 import coloredlogs
-import logging, re, json
+import logging, re, json, time
+from multi_agent_reviewer import metrics
 
 redis = Redis.from_url(settings.redis_url)
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(level="DEBUG", logger=logger)
 logging.basicConfig(level=logging.DEBUG)
+
+AGENT = "llm_review_agent"
 
 
 class Suggestion(BaseModel):
@@ -134,7 +137,7 @@ def _extract_json_from_exception(exc: Exception) -> Optional[Dict[str, Any]]:
 def _make_llm():
     # Create and return the LLM instance. Allows for diversity and easier testing
     llm = ChatGroq(
-        model="openai/gpt-oss-120b",
+        model=settings.llm_model,
         api_key=SecretStr(settings.groq_api_key),
         temperature=0.2,
         max_tokens=4000,
@@ -159,6 +162,9 @@ def run_llm_review(payload: dict, static_job_id: str):
     job.meta["stage"] = "llm:started"
     job.save_meta()
 
+    metrics.MAR_JOBS_STARTED.labels(AGENT).inc()
+    start_time = time.time()
+
     logger.info(f"Running LLM review for {owner}/{repo} PR #{pr} with static summary.")
 
     prompt_input = {
@@ -170,9 +176,12 @@ def run_llm_review(payload: dict, static_job_id: str):
     llm = _make_llm()
     structured_llm = llm.with_structured_output(LLMResponse)
 
+    metrics.MAR_LLM_REQUESTS.labels(AGENT, settings.llm_model, "patch_generation").inc()
     try:
         chain = prompt_template | structured_llm
-        parsed_output: LLMResponse = cast(LLMResponse, chain.invoke(prompt_input))
+
+        with metrics.MAR_LLM_LATENCY.labels(AGENT, settings.llm_model).time():
+            parsed_output: LLMResponse = cast(LLMResponse, chain.invoke(prompt_input))
 
     except Exception as e:
         logger.warning("LLM invocation raised, attempting salvage parsing: %s", e)
@@ -209,10 +218,14 @@ def run_llm_review(payload: dict, static_job_id: str):
             )
             job.meta["stage"] = "llm:failed"
             job.save_meta()
+            metrics.MAR_JOBS_FAILED.labels(AGENT, type(e).__name__).inc()
+            metrics.MAR_JOB_DURATION.labels(AGENT).observe(time.time() - start_time)
             raise
 
     job.meta["stage"] = "llm:completed"
     job.save_meta()
+    metrics.MAR_JOBS_SUCCEEDED.labels(AGENT).inc()
+    metrics.MAR_JOB_DURATION.labels(AGENT).observe(time.time() - start_time)
 
     logger.info(
         f"LLM review completed for {owner}/{repo} PR #{pr} with {len(parsed_output.suggestions)} suggestions."
