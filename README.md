@@ -8,8 +8,9 @@
 6. start review agent
 7. static check agent
 8. finalizer agent
+9. llm reviewer agent
 
 # TODO
 
-1. llm reviewer agent
-2. autofix agent
+1. autofix agent
+2. auto pr review generation for the llm suggestions

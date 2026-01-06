@@ -10,7 +10,7 @@ import logging
 import time
 from ..utils.github_utils import get_changed_hunks
 from sqlalchemy import DateTime
-from prometheus_client import REGISTRY
+from prometheus_client import CollectorRegistry, multiprocess, REGISTRY
 from multi_agent_reviewer.metrics import get_metrics
 import coloredlogs
 
@@ -35,16 +35,18 @@ def start_revew_agent(payload: dict):
     repo = payload["repo"]
     pr = payload["pr"]
 
+    # registry = CollectorRegistry()
+    # multiprocess.MultiProcessCollector(registry)
+    metrics_dict = get_metrics(REGISTRY)
+    metrics_dict["MAR_JOBS_STARTED"].labels(AGENT).inc()
+    start_time = time.time()
+
     lock_key = _lock_key(owner, repo, pr)
     got = redis.set(lock_key, job.get_id(), nx=True, ex=60 * 10)
 
     if not got:
         logger.info(f"Review job already in progress for {owner}/{repo} PR #{pr}")
         return {"status": "skipped", "reason": "already_running"}
-
-    metrics_dict = get_metrics(REGISTRY)
-    metrics_dict["MAR_JOBS_STARTED"].labels(AGENT).inc()
-    start_time = time.time()
 
     new_task = Task(
         owner=owner,
@@ -81,13 +83,20 @@ def start_revew_agent(payload: dict):
             depends_on=static_agent,
         )
 
+        review_comment_agent = queue.enqueue(
+            "multi_agent_reviewer.services.review_comment_agent.post_review_comments",
+            args=(payload, llm_agent.get_id()),
+            on_failure="multi_agent_reviewer.services.job_failure.on_job_failure",
+            depends_on=llm_agent,
+        )
+
         finalizer_agent = queue.enqueue(
             "multi_agent_reviewer.services.finalizer_agent.finalize_review",
             args=(new_task.id, llm_agent.get_id(), static_agent.get_id()),
             on_failure="multi_agent_reviewer.services.job_failure.on_job_failure",
             timeout=10 * 60,
             retry=Retry(max=2),
-            depends_on=llm_agent,
+            depends_on=review_comment_agent,
         )
 
         logger.info(f"Enqueued review agents for {owner}/{repo} PR #{pr}")

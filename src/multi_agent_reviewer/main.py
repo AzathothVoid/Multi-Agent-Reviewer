@@ -95,6 +95,40 @@ async def review(
 
     event = x_github_event or payload.get("action")
 
+    # Handle issue_comment event for /apply
+    if event == "issue_comment":
+        comment = payload.get("comment", {})
+        body = comment.get("body", "")
+        if body.strip().startswith("/apply"):
+            parts = body.strip().split()
+            if len(parts) == 2:
+                suggestion_id = parts[1]
+                pr = payload.get("issue", {})
+                pr_number = pr.get("number")
+                repo = payload.get("repository", {})
+                owner = repo.get("owner", {}).get("login")
+                repo_name = repo.get("name")
+                installation_id = repo.get("installation_id")
+                # TODO: Retrieve suggestion details from storage or context
+                suggestion = {
+                    "id": suggestion_id,
+                    "file": "<file_path>",
+                    "patch": "<patch_contents>",
+                    "head_sha": "<head_sha>",
+                }
+                # TODO: Enqueue the auto fix agent job
+                success = True
+                if success:
+                    return {
+                        "ok": True,
+                        "message": f"Applied suggestion {suggestion_id}",
+                    }
+                else:
+                    return {
+                        "ok": False,
+                        "message": f"Failed to apply suggestion {suggestion_id}",
+                    }
+
     if event == "installation":
         action = payload.get("action")
         installation = payload.get("installation", {})

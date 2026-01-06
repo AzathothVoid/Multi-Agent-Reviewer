@@ -166,3 +166,37 @@ def get_changed_hunks(
 
     logger.info(f"Extracted changed hunks for PR #{pr_number} in {owner}/{repo}")
     return hunks_by_filename
+
+
+def post_pr_review_comment(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    body: str,
+    path: str,
+    line: int,
+    commit_id: str,
+    installation_id: int,
+):
+    token = (
+        get_installation_token(installation_id)["token"] if installation_id else None
+    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/comments"
+    payload = {"body": body}
+    if path and line:
+        payload = {
+            **payload,
+            "path": path,
+            "line": line,
+            "side": "RIGHT",
+            "commit_id": commit_id,
+        }
+
+    with httpx.Client(timeout=20) as client:
+        response = client.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()

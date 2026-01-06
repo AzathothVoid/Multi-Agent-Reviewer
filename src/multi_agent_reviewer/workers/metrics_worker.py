@@ -1,5 +1,5 @@
 from rq import Queue, Worker
-from prometheus_client import REGISTRY
+from prometheus_client import CollectorRegistry, multiprocess
 from multi_agent_reviewer.metrics import get_metrics
 from rq.job import Job
 import time
@@ -7,7 +7,9 @@ import time
 
 class MetricsWorker(Worker):
     def execute_job(self, job: Job, queue: Queue):
-        metrics_dict = get_metrics(REGISTRY)
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        metrics_dict = get_metrics(registry)
         metrics_dict["MAR_RQ_STARTED"].labels("rq_worker", queue.name).inc()
         start = time.time()
         try:
