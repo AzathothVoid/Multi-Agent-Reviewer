@@ -136,6 +136,21 @@ def clone_github_repo(
     return (tempdir, tmp_repo_dir)
 
 
+def get_pr_diff(owner: str, repo: str, pr_number: int, installation_id: int):
+    token = get_installation_token(installation_id)["token"]
+    url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    with httpx.Client(timeout=20) as client:
+        response = client.get(url, headers=headers)
+
+    response.raise_for_status()
+    return response.json()
+
+
 def get_changed_hunks(
     owner: str, repo: str, pr_number: int, installation_id: int, max_chars: int = 5000
 ) -> Dict[str, str]:

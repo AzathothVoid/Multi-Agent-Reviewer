@@ -1,5 +1,6 @@
 import logging
-from multi_agent_reviewer.utils.github_utils import post_pr_review_comment
+from multi_agent_reviewer.utils.github_utils import post_pr_review_comment, get_pr_diff
+from multi_agent_reviewer.utils.diff_utils import find_diff_position
 from rq.job import Job
 from rq import get_current_job
 from redis import Redis
@@ -28,8 +29,25 @@ def post_review_comments(payload: dict, llm_agent_id: str):
     llm_agent = Job.fetch(llm_agent_id, connection=redis)
     llm_suggestions = llm_agent.result
 
+    try:
+        diff_text = get_pr_diff(owner, repo, pr, installation_id)
+    except Exception as e:
+        logger.error(f"Error fetching diff for {owner}/{repo} PR #{pr}: {e}")
+        metrics_dict["MAR_JOBS_SUCCEEDED"].labels(AGENT).inc()
+        metrics_dict["MAR_JOB_DURATION"].labels(AGENT).observe(time.time() - start_time)
+        raise
+
     for suggestion in llm_suggestions:
         try:
+            position = find_diff_position(
+                diff_text, suggestion["file"], suggestion["start_line"]
+            )
+            if position is None:
+                logger.error(
+                    f"Could not find diff position for {suggestion['file']}:{suggestion['start_line']}"
+                )
+                continue
+
             comment_body = f"LLM Suggestion:\n{suggestion['explain']}\n\nPatch:\n```{suggestion['patch']}```\nReply `/apply {suggestion['id']}` to apply this change automatically."
             post_pr_review_comment(
                 owner=owner,
