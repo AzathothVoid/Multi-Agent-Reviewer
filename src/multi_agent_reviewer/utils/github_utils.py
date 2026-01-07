@@ -141,14 +141,14 @@ def get_pr_diff(owner: str, repo: str, pr_number: int, installation_id: int):
     url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
     headers = {
         "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
+        "Accept": "application/vnd.github.v3.diff",
     }
 
     with httpx.Client(timeout=20) as client:
         response = client.get(url, headers=headers)
 
     response.raise_for_status()
-    return response.json()
+    return response.text
 
 
 def get_changed_hunks(

@@ -39,7 +39,7 @@ class LLMResponse(BaseModel):
     suggestions: List[Suggestion] = []
 
 
-PROMPT = """You are a concise code reviewer. Return only JSON that matches the format instructions.
+PROMPT = """You are a concise code reviewer. Return only JSON that matches the format instructions
 
         PR_TITLE:
         {pr_title}
@@ -53,6 +53,7 @@ PROMPT = """You are a concise code reviewer. Return only JSON that matches the f
         INSTRUCTIONS:
         {instructions}
 
+        Note: If there are too many linter issues, focus on the most critical ones that impact code quality and functionality.
 """
 
 prompt_template = PromptTemplate(
