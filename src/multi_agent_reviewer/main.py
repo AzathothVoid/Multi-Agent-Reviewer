@@ -95,7 +95,6 @@ async def review(
 
     event = x_github_event or payload.get("action")
 
-    # Handle issue_comment event for /apply
     if event == "issue_comment":
         comment = payload.get("comment", {})
         body = comment.get("body", "")
