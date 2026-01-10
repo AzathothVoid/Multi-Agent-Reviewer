@@ -5,10 +5,19 @@ from ..models.Task import Task, TaskStatus
 from ..config import settings
 from redis import Redis
 from typing import cast
-import logging
+from datetime import datetime
+from sqlalchemy import DateTime
+import coloredlogs
+import logging, time
+from prometheus_client import REGISTRY
+from multi_agent_reviewer.metrics import get_metrics
 
 logger = logging.getLogger(__name__)
-redis = Redis.from_url(settings.redis_url, decode_responses=True)
+coloredlogs.install(level="DEBUG", logger=logger)
+logging.basicConfig(level=logging.DEBUG)
+redis = Redis.from_url(settings.redis_url)
+
+AGENT = "finalizer_agent"
 
 
 def _unlock_pr(owner: str, repo: str, pr_number: int):
@@ -16,26 +25,13 @@ def _unlock_pr(owner: str, repo: str, pr_number: int):
     redis.delete(lock_key)
 
 
-def on_failure(job, conneciton, type, value, traceback):
-    logger.error(f"Job {job.id} failed with error: {value}")
-    task_id = job.meta.get("task_id")
-
-    if not task_id:
-        return
-
-    task = cast(Task, session.get(Task, task_id))
-
-    if task:
-        task.status = TaskStatus.FAILED
-        task.result = {"error": f"Job {job.id} failed: {value}"}
-        session.commit()
-        _unlock_pr(task.owner, task.repo, task.pr_number)
-
-    session.close()
-
-
 def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
     global task
+
+    metrics_dict = get_metrics(REGISTRY)
+    metrics_dict["MAR_JOBS_STARTED"].labels(AGENT).inc()
+    start_time = time.time()
+
     try:
         task = cast(Task, session.get(Task, task_id))
         current_job = cast(Job, get_current_job())
@@ -48,21 +44,28 @@ def finalize_review(task_id: int, llm_job_id: str, static_job_id: str):
         llm_job = Job.fetch(llm_job_id, connection=redis)
 
         task.status = TaskStatus.COMPLETED
+        task.completed_at = cast(DateTime, datetime.now())
         task.result = {
             "static_checks": static_job.result,
             "llm_suggestions": llm_job.result,
         }
 
         session.commit()
-        logger.info(f"Job {current_job.id} has completed sucessfully")
+        logger.info(
+            f"Job {current_job.id} has completed sucessfully with result: {task.result}"
+        )
+        metrics_dict["MAR_JOBS_SUCCEEDED"].labels(AGENT).inc()
     except Exception as e:
         logger.error(f"Error in finalize_review for task {task_id}: {e}")
         task.status = TaskStatus.FAILED
+        task.completed_at = cast(DateTime, datetime.now())
         task.result = {"error": str(e)}
         session.commit()
-        raise
+        metrics_dict["MAR_JOBS_FAILED"].labels(AGENT, type(e).__name__).inc()
+        raise e
 
     finally:
-        session.close()
-        if "task" in locals() and task:
+        if task:
             _unlock_pr(task.owner, task.repo, task.pr_number)
+        session.close()
+        metrics_dict["MAR_JOB_DURATION"].labels(AGENT).observe(time.time() - start_time)

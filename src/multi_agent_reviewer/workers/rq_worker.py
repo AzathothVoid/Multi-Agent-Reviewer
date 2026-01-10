@@ -1,8 +1,9 @@
 from rq import Worker, Queue
-from src.multi_agent_reviewer.config import settings
+from ..config import settings
 from redis import Redis
 import signal
 import logging
+from .metrics_worker import MetricsWorker
 import os
 
 redis_conn = Redis.from_url(settings.redis_url)
@@ -10,10 +11,12 @@ redis_conn = Redis.from_url(settings.redis_url)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = settings.prometheus_multiproc_dir
+
 
 def run_worker():
     queue = Queue(connection=redis_conn)
-    worker = Worker([queue])
+    worker = MetricsWorker([queue])
 
     def _graceful(signum, frame):
         logger.info("Received signal %s, shutting down gracefully...", signum)

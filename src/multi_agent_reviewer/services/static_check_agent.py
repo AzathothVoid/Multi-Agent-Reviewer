@@ -1,10 +1,17 @@
-import os, shutil, logging
+import time, shutil, logging
 from rq.job import Job
 from rq import get_current_job
 from ..utils.utils import run_command
 from ..utils.github_utils import clone_github_repo
+from prometheus_client import REGISTRY
+from multi_agent_reviewer.metrics import get_metrics
+import coloredlogs
 
 logger = logging.getLogger(__name__)
+coloredlogs.install(level="DEBUG", logger=logger)
+logging.basicConfig(level=logging.DEBUG)
+
+AGENT = "static_check_agent"
 
 
 def run_static_checks(payload: dict):
@@ -22,28 +29,50 @@ def run_static_checks(payload: dict):
 
     job.meta["stage"] = "static:started"
     job.save_meta()
+    metrics_dict = get_metrics(REGISTRY)
+    metrics_dict["MAR_JOBS_STARTED"].labels(AGENT).inc()
+    start_time = time.time()
 
-    tmpdir = clone_github_repo(owner, repo, head_sha, installation_id)
+    tmpdir = None
+    tmp_repo_dir = None
 
     try:
+        (tmpdir, tmp_repo_dir) = clone_github_repo(
+            owner, repo, head_sha, installation_id
+        )
+
         logger.info(
             f"Running static checks for {owner}/{repo} PR #{pr_number} at commit {head_sha}"
         )
         ## For now running the linter and formatting checks in the venv of the worker.
         ## TODO: Move this to a containerized environment for better isolation.
-        black = run_command(["black", "--check", "."], cwd=tmpdir)
-        flake = run_command(["flake8", "."], cwd=tmpdir)
+        black = run_command(["black", "--check", "."], cwd=tmp_repo_dir)
+        metrics_dict["MAR_CHECKS_RUN"].labels(
+            AGENT, "black", "pass" if black["returncode"] == 0 else "fail"
+        ).inc()
+        metrics_dict["MAR_CHECKS_DURATION"].labels(AGENT, "black").observe(
+            black["duration"]
+        )
+
+        flake = run_command(["flake8", "."], cwd=tmp_repo_dir)
+        metrics_dict["MAR_CHECKS_RUN"].labels(
+            AGENT, "flake8", "pass" if flake["returncode"] == 0 else "fail"
+        ).inc()
+        metrics_dict["MAR_CHECKS_DURATION"].labels(AGENT, "flake8").observe(
+            flake["duration"]
+        )
 
         aggregated = {
             "status": "ok" if black["returncode"] == 0 else "failed",
             "artifacts": {"black": black, "flake8": flake},
             "summary": {"errors": len(flake.get("stdout", ""))},
-            "workspace": tmpdir,
+            "workspace": tmp_repo_dir,
         }
 
         job.meta["stage"] = "static:completed"
         job.save_meta()
 
+        metrics_dict["MAR_JOBS_SUCCEEDED"].labels(AGENT).inc()
         logger.info(
             f"Static checks completed for {owner}/{repo} PR #{pr_number} with status {aggregated['status']}"
         )
@@ -55,6 +84,9 @@ def run_static_checks(payload: dict):
         )
         job.meta["stage"] = "static:failed"
         job.save_meta()
-        raise
+        metrics_dict["MAR_JOBS_FAILED"].labels(AGENT, type(e).__name__).inc()
+        raise e
     finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        metrics_dict["MAR_JOB_DURATION"].labels(AGENT).observe(time.time() - start_time)

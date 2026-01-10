@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     database_url: str = Field(default="", validation_alias="DATABASE_CONNECTION_MAIN")
     groq_api_key: str = Field(default="", validation_alias="GROQ_API_KEY")
 
+    llm_model: str = Field(default="openai/gpt-oss-120b", validation_alias="LLM_MODEL")
+
+    prometheus_multiproc_dir: str = Field(
+        default="/tmp/mar_prometheus", validation_alias="PROMETHEUS_MULTIPROC_DIR"
+    )
+
     github_app_secret: str = Field(default="", validation_alias="GITHUB_APP_SECRET")
     github_client_secret: str = Field(
         default="", validation_alias="GITHUB_APP_CLIENT_SECRET"
